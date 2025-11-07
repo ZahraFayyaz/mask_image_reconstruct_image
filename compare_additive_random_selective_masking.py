@@ -412,6 +412,8 @@ def main(args):
     # print(sample_list)
 
 if __name__ == "__main__":
+
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_gpu", type=int, default=1)
 
