@@ -437,9 +437,47 @@ def additive_plot(batch_size=10, file_name='recons_add_attn', step_size=1, img_i
         recons.append(recons_from_max_indices)
         mask[rows, pos_to_unmask[:, :i]] = 1
         masks.append(mask.clone())
-        mask_perc.insert(0, i/400)
+        mask_perc.append((400 - i)/400)
         confidences.append(max_conf_per_pos)
         normed_confidences.append(torch.max(torch.softmax(logits, dim=2), dim=2)[0])
+
+    plot_recons(recons, masks, mask_perc, confidences, normed_confidences, file_name)
+
+
+@torch.no_grad()
+def selective_attn_weird_implementation_plot(batch_size=10, file_name='recons_selective_attn_weird_implementation', img_ids=None):
+    class_labels, index_repr, q, q_2d = load_data()
+    n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
+    model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
+    if img_ids:
+        q_batch, index_repr_batch, q_2d_batch = get_imgs_from_ids((q, index_repr, q_2d), imgs_ids=img_ids)
+    else:
+        q_batch, index_repr_batch, q_2d_batch = batch_to_device((q, index_repr, q_2d), 0, batch_size)
+    q_masked, _, _ = full_mask(q_batch, index_repr_batch)
+    pos_to_unmask = torch.empty((q_batch.shape[0], 0), dtype=torch.int64).to(DEVICE)
+    rows = torch.arange(q_batch.size(0)).unsqueeze(1)
+    mask = torch.zeros(size=(q_batch.shape[0], q_batch.shape[1]))
+    masks, recons, confidences, normed_confidences, mask_perc = [], [], [], [], []
+
+    for i in range(0, q_batch.shape[1] + 1):
+        q_masked[rows, pos_to_unmask] = q_batch[rows, pos_to_unmask]
+        logits = model_distil(inputs_embeds=q_masked, output_hidden_states=True).logits
+        max_conf_per_pos, max_index_per_pos = torch.max(logits, dim=2)
+        max_index_per_pos[rows, pos_to_unmask] = index_repr_batch[rows, pos_to_unmask]
+        recons_from_max_indices = model_vqvae.decode_code(max_index_per_pos.reshape(-1, length, length).to(DEVICE))
+        sorted_max_conf_per_pos = torch.argsort(max_conf_per_pos, dim=1)
+        if i == 0:
+            pos_to_unmask = torch.full(size=(batch_size, 1), fill_value=200)
+        else:
+            pos_to_unmask = conc_unique_elements(pos_to_unmask, sorted_max_conf_per_pos, n_elements=1)
+        recons.append(recons_from_max_indices)
+        mask[rows, pos_to_unmask[:, :i]] = 1
+        masks.append(mask.clone())
+        mask_perc.append((400 - i)/400)
+        confidences.append(max_conf_per_pos)
+        normed_confidences.append(torch.max(torch.softmax(logits, dim=2), dim=2)[0])
+        if i == 100:
+            break
 
     plot_recons(recons, masks, mask_perc, confidences, normed_confidences, file_name)
 
@@ -518,12 +556,14 @@ if __name__ == "__main__":
     #
     args = parser.parse_args()
     #
-    # additive_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
+    # additive_plot(batch_size=10, step_size=5, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
     # random_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
 
     #
     # selective_direct_attn_eval(batch_size=500, step_size=1)
     # selective_direct_attn_eval(batch_size=100, step_size=1, reverse=True)
+    selective_attn_weird_implementation_plot(batch_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
+
 
     # selective_direct_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
     # selective_iterative_attn_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
@@ -532,7 +572,7 @@ if __name__ == "__main__":
 
     # selective_direct_inverse_attn_eval(batch_size=500)
     # random_attn_eval()
-    additive_attn_eval(batch_size=500)
+    # additive_attn_eval(batch_size=500)
     # selective_iterative_attn_eval(batch_size=500)
     # za
     # main(args)

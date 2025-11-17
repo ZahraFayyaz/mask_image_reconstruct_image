@@ -225,111 +225,111 @@ def main(args):
     # n_sample = 10_000  # why?
     # reconstruction_error = np.zeros((n_sample, len(reverse_mask_percentages)))
     criterion = nn.MSELoss()
-    # for x in range(n_sample):
-    #     q = torch.from_numpy(quantizes[x]).to(device)
-    #     q = torch.reshape(q, (1, q.size(dim=0), q.size(dim=1)))
-    #     index = torch.from_numpy(indices[x]).to(device)
-    #     label = labels[x]
-    #
-    #     '''
-    #     Outer increments: 12
-    #     Inner increments: 4+4+4+4+8+8+8+8+8+8+8 = 72
-    #     '''
-    #     n_iter = 0
-    #     for i in range(len(mask_perc_map_indices_length)):
-    #         n_iter += 1  # for the outer loop
-    #         if i < len(mask_perc_map_indices_length) - 1:
-    #             n_iter += int((mask_perc_map_indices_length[i] - mask_perc_map_indices_length[i + 1]) // 5)  # what is happening here
-    #
-    #     stack_mask_pattern = np.zeros((n_iter, n_token), dtype=bool)
-    #     stack_output_logits = np.zeros((n_iter, n_token, vocab_size),
-    #                                    dtype=float)  # 80 is the number of events, 400 is the number of tokens represents each pixel of encoded latent space which has the shape of 20*20, and 456 is the number of codebook vectors
-    #     unmask_indices = []
-    #     i = 0  # iteration on mask_perc_map_indices_length
-    #     l = 0  # iteration on the number of total iterations corresponding to the number of mask and logits generation (number of calling the transformer model)
-    #
-    #     q_masked, index_masked, mask_pattern = full_mask(q, index, n_token)
-    #     q_masked = q_masked.to(device)
-    #     index_masked = index_masked.to(device)
-    #     index_masked_for_visual = index.clone()
+    for x in range(n_sample):
+        q = torch.from_numpy(quantizes[x]).to(device)
+        q = torch.reshape(q, (1, q.size(dim=0), q.size(dim=1)))
+        index = torch.from_numpy(indices[x]).to(device)
+        label = labels[x]
 
-    #     while i < len(mask_perc_map_indices_length):
-    #         print('additive approach - event:', x)
-    #         outputs = model_distil(inputs_embeds=q_masked, output_hidden_states=True)
-    #         stack_output_logits[l] = outputs.logits[0].detach().cpu().numpy()  # save the logits for each iteration
-    #         stack_mask_pattern[l] = mask_pattern[0][0]  # save the mask pattern for each iteration
-    #         # k += 1  # TODO: What is that k doing here?
-    #         confidence, ind_most_probable = torch.max(outputs.logits, dim=2)  # the first variable is the max_logits, and the second variable is the indices of the max logits
-    #         confidence_based_recons_index = ind_most_probable[0]
-    #         confidence_based_recons_index = confidence_based_recons_index.to(device)
-    #         # Flatten the tensor to 1D
-    #         confidence_flat = confidence.flatten()  # ???
-    #         # Get indices that would sort the tensor in ascending order
-    #         conf_indices_min_max = torch.argsort(confidence_flat, dim=0)
-    #         # stack_mask_pattern[i] = mask_pattern[0][0]
-    #
-    #         if unmask_indices:
-    #             confidence_based_recons_index[unmask_indices] = index[unmask_indices]
-    #
-    #         distil_out = model_vqvae.decode_code(torch.reshape(confidence_based_recons_index, (1, length, length)).to(device))
-    #
-    #         vqvae_out = model_vqvae.decode(torch.from_numpy(quant_b[x]).to(device))  # torch.reshape(torch.from_numpy(indices[x]), (1,length,length)).to(device)
-    #
-    #         index_masked_for_visual[mask_pattern[0]] = 0
-    #         vqvae_masked_out = model_vqvae.decode_code(torch.reshape(index_masked_for_visual, (1, length, length)).to(device))
-    #
-    #         percentage = int(reverse_mask_percentages[i] * 100)
-    #         img_list = [vqvae_out, vqvae_masked_out, distil_out]
-    #         # label_list = [vqvae_img_label.item(), vqvae_masked_img_label.item(), add_mask_img_label.item()]
-    #         # for ii, img in enumerate(img_list):
-    #         #     img_np = img.squeeze(0).permute(1, 2, 0).cpu().numpy()
-    #         #     if ii == 0 and percentage == 100:
-    #         #         np.save(
-    #         #             f'/home/abghamtm/work/masking_comparison/image/recons/original_img_reconstrcted_data/{str(x).zfill(5)}_OriginalImage_TrueLabel={label}.npy',
-    #         #             img_np)
-    #         #     elif ii == 1:
-    #         #         np.save(
-    #         #             f'/home/abghamtm/work/masking_comparison/image/recons/aditive_img_data/{str(x).zfill(5)}_MaskPercentage={percentage}_AdditiveMasking_TrueLabel={label}.npy',
-    #         #             img_np)
-    #         #     else:
-    #         #         np.save(
-    #         #             f'/home/abghamtm/work/masking_comparison/image/recons/aditive_img_data/{str(x).zfill(5)}_MaskPercentage={percentage}_AdditiveMaskingWithTransformer_TrueLabel={label}.npy',
-    #         #             img_np)
-    #
-    #         recons_loss = criterion(distil_out, vqvae_out.unsqueeze(0))
-    #         print(recons_loss)
-    #         reconstruction_error[x, i] = recons_loss.item()
-    #
-    #         try:  # the purpose of this try-except block is to avoid the error when the mask_perc_map_indices_length index i+1 reaches 12
-    #             # unmask indices gradually
-    #             for j in range(int((mask_perc_map_indices_length[i] - mask_perc_map_indices_length[i + 1]) // 5)):
-    #                 c = 0
-    #                 for k in range(len(conf_indices_min_max)):
-    #                     if conf_indices_min_max[k].item() not in unmask_indices:
-    #                         unmask_indices.append(conf_indices_min_max[k].item())
-    #                         c += 1
-    #                         if c == 5:
-    #                             break
-    #
-    #                 q_masked, index_masked, mask_pattern = custom_mask(q, index, n_token, mask_pattern, unmask_indices)
-    #                 if (q_masked[0][unmask_indices] == 0).all():  # I have to divide num_zeros by q_masked.shape[2] because q_masked is a 3D tensor and we want to check the number of zeros per token/embedded vector
-    #                     raise ValueError(f"Unmask codebooks are populated by zeros")
-    #
-    #                 outputs = model_distil(inputs_embeds=q_masked, output_hidden_states=True)
-    #                 stack_output_logits[l] = outputs.logits[0].detach().cpu().numpy()  # save the logits for each iteration
-    #                 stack_mask_pattern[l] = mask_pattern[0][0]  # save the mask pattern for each iteration
-    #                 # k += 1
-    #                 confidence, ind_most_probable = torch.max(outputs.logits, dim=2)
-    #                 confidence_flat = confidence.flatten()
-    #                 conf_indices_min_max = torch.argsort(confidence_flat, dim=0)
-    #         except:
-    #             break
-    #
-    #         i += 1
-    #     # np.save(
-    #     #     f'/home/abghamtm/work/masking_comparison/masking-reconstruction_pattern/additiv_mask_pattern_{str(x).zfill(5)}.npy',
-    #     #     stack_mask_pattern)
-    #
+        '''
+        Outer increments: 12
+        Inner increments: 4+4+4+4+8+8+8+8+8+8+8 = 72
+        '''
+        n_iter = 0
+        for i in range(len(mask_perc_map_indices_length)):
+            n_iter += 1  # for the outer loop
+            if i < len(mask_perc_map_indices_length) - 1:
+                n_iter += int((mask_perc_map_indices_length[i] - mask_perc_map_indices_length[i + 1]) // 5)  # what is happening here
+
+        stack_mask_pattern = np.zeros((n_iter, n_token), dtype=bool)
+        stack_output_logits = np.zeros((n_iter, n_token, vocab_size),
+                                       dtype=float)  # 80 is the number of events, 400 is the number of tokens represents each pixel of encoded latent space which has the shape of 20*20, and 456 is the number of codebook vectors
+        unmask_indices = []
+        i = 0  # iteration on mask_perc_map_indices_length
+        l = 0  # iteration on the number of total iterations corresponding to the number of mask and logits generation (number of calling the transformer model)
+
+        q_masked, index_masked, mask_pattern = full_mask(q, index, n_token)
+        q_masked = q_masked.to(device)
+        index_masked = index_masked.to(device)
+        index_masked_for_visual = index.clone()
+
+        while i < len(mask_perc_map_indices_length):
+            print('additive approach - event:', x)
+            outputs = model_distil(inputs_embeds=q_masked, output_hidden_states=True)
+            stack_output_logits[l] = outputs.logits[0].detach().cpu().numpy()  # save the logits for each iteration
+            stack_mask_pattern[l] = mask_pattern[0][0]  # save the mask pattern for each iteration
+            # k += 1  # TODO: What is that k doing here?
+            confidence, ind_most_probable = torch.max(outputs.logits, dim=2)  # the first variable is the max_logits, and the second variable is the indices of the max logits
+            confidence_based_recons_index = ind_most_probable[0]
+            confidence_based_recons_index = confidence_based_recons_index.to(device)
+            # Flatten the tensor to 1D
+            confidence_flat = confidence.flatten()  # ???
+            # Get indices that would sort the tensor in ascending order
+            conf_indices_min_max = torch.argsort(confidence_flat, dim=0)
+            # stack_mask_pattern[i] = mask_pattern[0][0]
+
+            if unmask_indices:
+                confidence_based_recons_index[unmask_indices] = index[unmask_indices]
+
+            distil_out = model_vqvae.decode_code(torch.reshape(confidence_based_recons_index, (1, length, length)).to(device))
+
+            vqvae_out = model_vqvae.decode(torch.from_numpy(quant_b[x]).to(device))  # torch.reshape(torch.from_numpy(indices[x]), (1,length,length)).to(device)
+
+            index_masked_for_visual[mask_pattern[0]] = 0
+            vqvae_masked_out = model_vqvae.decode_code(torch.reshape(index_masked_for_visual, (1, length, length)).to(device))
+
+            percentage = int(reverse_mask_percentages[i] * 100)
+            img_list = [vqvae_out, vqvae_masked_out, distil_out]
+            # label_list = [vqvae_img_label.item(), vqvae_masked_img_label.item(), add_mask_img_label.item()]
+            # for ii, img in enumerate(img_list):
+            #     img_np = img.squeeze(0).permute(1, 2, 0).cpu().numpy()
+            #     if ii == 0 and percentage == 100:
+            #         np.save(
+            #             f'/home/abghamtm/work/masking_comparison/image/recons/original_img_reconstrcted_data/{str(x).zfill(5)}_OriginalImage_TrueLabel={label}.npy',
+            #             img_np)
+            #     elif ii == 1:
+            #         np.save(
+            #             f'/home/abghamtm/work/masking_comparison/image/recons/aditive_img_data/{str(x).zfill(5)}_MaskPercentage={percentage}_AdditiveMasking_TrueLabel={label}.npy',
+            #             img_np)
+            #     else:
+            #         np.save(
+            #             f'/home/abghamtm/work/masking_comparison/image/recons/aditive_img_data/{str(x).zfill(5)}_MaskPercentage={percentage}_AdditiveMaskingWithTransformer_TrueLabel={label}.npy',
+            #             img_np)
+
+            # recons_loss = criterion(distil_out, vqvae_out.unsqueeze(0))
+            # print(recons_loss)
+            # reconstruction_error[x, i] = recons_loss.item()
+
+            try:  # the purpose of this try-except block is to avoid the error when the mask_perc_map_indices_length index i+1 reaches 12
+                # unmask indices gradually
+                for j in range(int((mask_perc_map_indices_length[i] - mask_perc_map_indices_length[i + 1]) // 5)):
+                    c = 0
+                    for k in range(len(conf_indices_min_max)):
+                        if conf_indices_min_max[k].item() not in unmask_indices:
+                            unmask_indices.append(conf_indices_min_max[k].item())
+                            c += 1
+                            if c == 5:
+                                break
+
+                    q_masked, index_masked, mask_pattern = custom_mask(q, index, n_token, mask_pattern, unmask_indices)
+                    if (q_masked[0][unmask_indices] == 0).all():  # I have to divide num_zeros by q_masked.shape[2] because q_masked is a 3D tensor and we want to check the number of zeros per token/embedded vector
+                        raise ValueError(f"Unmask codebooks are populated by zeros")
+
+                    outputs = model_distil(inputs_embeds=q_masked, output_hidden_states=True)
+                    stack_output_logits[l] = outputs.logits[0].detach().cpu().numpy()  # save the logits for each iteration
+                    stack_mask_pattern[l] = mask_pattern[0][0]  # save the mask pattern for each iteration
+                    # k += 1
+                    confidence, ind_most_probable = torch.max(outputs.logits, dim=2)
+                    confidence_flat = confidence.flatten()
+                    conf_indices_min_max = torch.argsort(confidence_flat, dim=0)
+            except:
+                break
+
+            i += 1
+        # np.save(
+        #     f'/home/abghamtm/work/masking_comparison/masking-reconstruction_pattern/additiv_mask_pattern_{str(x).zfill(5)}.npy',
+        #     stack_mask_pattern)
+
     # reconstruction_err = np.mean(reconstruction_error, axis=0)
     # reconstruction_err = reconstruction_err[::-1]
     # # np.save('/home/abghamtm/work/masking_comparison/additive_masking_reconstruction_error.npy', reconstruction_error)
