@@ -514,16 +514,19 @@ if __name__ == "__main__":
     parser.add_argument('--ckpt_distil_combined', type=str, default=EIGHTY_EIGHTY_PATH)
 
     # plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'selective_attn_direct_inverse_recon_errors.pt'), label='direct_inv_selective')
+    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors.pt'), label='additive')
+    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'selective_attn_direct_recon_errors.pt'), label='direct_selective')
+    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'selective_attn_recon_errors.pt'), label='iterative_selective')
     plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'random_attn_recon_errors.pt'), label='random')
-    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors.pt')[::-1], label='additive')
-    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_init_200.pt'), label='additive_200')
-    # plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_init_190.pt'), label='additive_190')
 
     data = torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_stepsize_5.pt').numpy()
     data_400 = np.repeat(data, 5)
-    plt.plot(data_400, label='additive_stepsize_5')
+    plt.plot(data_400, label='selective_strange')
 
-    # plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'selective_attn_direct_recon_errors.pt'), label='direct_selective')
+    # plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_init_200.pt'), label='additive_200')
+    # plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_init_190.pt'), label='additive_190')
+
+
     plt.legend()
     plt.show()
     # #

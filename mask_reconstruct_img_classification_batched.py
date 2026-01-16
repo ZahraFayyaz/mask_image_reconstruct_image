@@ -178,11 +178,18 @@ def classifier_setup():
     return classifier, preprocess
 
 
-def load_data():
+def load_data(train_data=False):
     quantizes, quant_b = load_embedding_space()
     indices = load_indices()
     labels = load_labels()
-    return torch.from_numpy(labels), torch.from_numpy(indices), torch.from_numpy(quantizes), torch.from_numpy(quant_b)
+    train_indices, test_indices = train_test_split(
+        np.arange(len(labels)),
+        test_size=0.2,
+        stratify=labels,
+        random_state=42
+    )
+    set_indices = train_indices if train_data else test_indices
+    return torch.from_numpy(labels)[set_indices], torch.from_numpy(indices)[set_indices], torch.from_numpy(quantizes)[set_indices], torch.from_numpy(quant_b)[set_indices]
     # return (torch.from_numpy(labels)[:20], torch.from_numpy(indices)[:20],
     #         torch.from_numpy(quantizes)[:20], torch.from_numpy(quant_b)[:20])
 
@@ -216,8 +223,8 @@ def denormalize(img):
 
 @torch.no_grad()
 def additive_attn_eval(step_size=1, batch_size=2000, file_name_ce='additive_classifier_ce.pt',
-                       file_name_acc='additive_classifier_acc.pt', init_unmask_pos=None):
-    class_labels, index_repr, q, q_2d = load_data()
+                       file_name_acc='additive_classifier_acc.pt', init_unmask_pos=None, train_data=False):
+    class_labels, index_repr, q, q_2d = load_data(train_data)
     n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
     model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
     classifier, preprocess = classifier_setup()
@@ -259,8 +266,8 @@ def additive_attn_eval(step_size=1, batch_size=2000, file_name_ce='additive_clas
 
 @torch.no_grad()
 def random_attn_eval(tokens_to_add=1, batch_size=2000, file_name_ce='random_classifier_ce.pt',
-                     file_name_acc='random_classifier_acc.pt', ):
-    class_labels, index_repr, q, q_2d = load_data()
+                     file_name_acc='random_classifier_acc.pt', train_data=False):
+    class_labels, index_repr, q, q_2d = load_data(train_data)
     n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
     model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
     classifier, preprocess = classifier_setup()
@@ -296,8 +303,8 @@ def random_attn_eval(tokens_to_add=1, batch_size=2000, file_name_ce='random_clas
 
 @torch.no_grad()
 def selective_iterative_attn_eval(step_size=1, batch_size=2000, file_name_ce='selective_iterative_classifier_ce.pt',
-                                  file_name_acc='selective_iterative_classifier_acc.pt'):
-    class_labels, index_repr, q, q_2d = load_data()
+                                  file_name_acc='selective_iterative_classifier_acc.pt', train_data=False):
+    class_labels, index_repr, q, q_2d = load_data(train_data)
     n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
     model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
     classifier, preprocess = classifier_setup()
@@ -339,8 +346,8 @@ def selective_iterative_attn_eval(step_size=1, batch_size=2000, file_name_ce='se
 
 @torch.no_grad()
 def selective_direct_attn_eval(batch_size=2000, file_name_ce='selective_direct_classifier_ce.pt',
-                               file_name_acc='selective_direct_classifier_acc.pt', step_size=1, reverse=False):
-    class_labels, index_repr, q, q_2d = load_data()
+                               file_name_acc='selective_direct_classifier_acc.pt', step_size=1, reverse=False, train_data=False):
+    class_labels, index_repr, q, q_2d = load_data(train_data)
     n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
     model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
     classifier, preprocess = classifier_setup()
@@ -563,63 +570,85 @@ if __name__ == "__main__":
         torch.cuda.empty_cache()
     else:
         DEVICE = 'cpu'
-
     pass
-    # data = torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_stepsize_5.pt').numpy()
-    # data_400 = np.repeat(data, 5)
-    # plt.plot(data_400, label='additive_stepsize_5')
 
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_acc.pt'), label='additive_attn')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_acc.pt').flip(0),
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_acc.pt'), label='additive_attn')
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_acc.pt').flip(0),
+    #          label='selective_direct')
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_acc.pt').flip(0),
+    #          label='selective_iterative')
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_acc.pt').flip(0), label='random_attn')
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_acc.pt').numpy().repeat(5), label='selective_strange')
+    #
+    #
+    # plt.ylim(0, 1)
+    # plt.legend()
+    # plt.show()
+    # #
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_ce.pt'), label='additive_attn')
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_ce.pt').flip(0),
+    #          label='selective_direct')
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_ce.pt').flip(0),
+    #          label='selective_iterative')
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_ce.pt').flip(0), label='random_attn')
+    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_ce.pt').numpy().repeat(5), label='selective_strange')
+    #
+    # plt.ylim(0, None)
+    # plt.legend()
+    # plt.show()
+
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_acc_train.pt'), label='additive_attn')
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_acc_train.pt').flip(0),
              label='selective_direct')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_acc.pt').flip(0),
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_acc_train.pt').flip(0),
              label='selective_iterative')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_acc.pt').flip(0), label='random_attn')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_acc.pt'), label='selective_strange')
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_acc_train.pt').flip(0), label='random_attn')
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_acc_train.pt').numpy().repeat(5), label='selective_strange')
 
 
     plt.ylim(0, 1)
     plt.legend()
     plt.show()
-    #
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_ce.pt'), label='additive_attn')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_ce.pt').flip(0),
+    # #
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_ce_train.pt'), label='additive_attn')
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_ce_train.pt').flip(0),
              label='selective_direct')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_ce.pt').flip(0),
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_ce_train.pt').flip(0),
              label='selective_iterative')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_ce.pt').flip(0), label='random_attn')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_acc.pt'), label='selective_strange')
-
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_ce_train.pt').flip(0), label='random_attn')
+    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_ce_train.pt').numpy().repeat(5), label='selective_strange')
+    #
     plt.ylim(0, None)
     plt.legend()
     plt.show()
-    # #
+
+
+    # random_attn_eval(batch_size=2000, tokens_to_add=1, file_name_ce='random_classifier_ce_train.pt', file_name_acc='random_classifier_acc_train.pt', train_data=True)
+    # selective_direct_attn_eval(batch_size=2000, step_size=1, file_name_ce='selective_direct_classifier_ce_train.pt', file_name_acc='selective_direct_classifier_acc_train.pt', train_data=True)
+    # selective_iterative_attn_eval(batch_size=2000, step_size=1, file_name_ce='selective_iterative_classifier_ce_train.pt', file_name_acc='selective_iterative_classifier_acc_train.pt', train_data=True)
+    # additive_attn_eval(batch_size=2000, step_size=5, init_unmask_pos=200, file_name_ce='selective_strange_attn_ce_train.pt', file_name_acc='selective_strange_attn_acc_train.pt', train_data=True)
+    # additive_attn_eval(batch_size=2000, step_size=1, init_unmask_pos=None, file_name_ce='additive_attn_ce_train.pt', file_name_acc='additive_attn_acc_train.pt', train_data=True)
     #
-    # random_attn_eval(batch_size=2000, tokens_to_add=1)
-    # selective_direct_attn_eval(batch_size=2000, step_size=1)
-    # selective_iterative_attn_eval(batch_size=2000, step_size=1)
+    # random_attn_eval(batch_size=2000, tokens_to_add=1, file_name_ce='random_classifier_ce.pt',
+    #                  file_name_acc='random_classifier_acc.pt')
+    # selective_direct_attn_eval(batch_size=2000, step_size=1, file_name_ce='selective_direct_classifier_ce.pt',
+    #                            file_name_acc='selective_direct_classifier_acc.pt')
+    # selective_iterative_attn_eval(batch_size=2000, step_size=1,
+    #                               file_name_ce='selective_iterative_classifier_ce.pt',
+    #                               file_name_acc='selective_iterative_classifier_acc.pt')
+    # additive_attn_eval(batch_size=2000, step_size=5, init_unmask_pos=200,
+    #                    file_name_ce='selective_strange_attn_ce.pt',
+    #                    file_name_acc='selective_strange_attn_acc.pt')
+    # additive_attn_eval(batch_size=2000, step_size=1, init_unmask_pos=None, file_name_ce='additive_attn_ce.pt',
+    #                    file_name_acc='additive_attn_acc.pt')
 
 
-    # additive_attn_eval(batch_size=2000, step_size=5, init_unmask_pos=200, file_name_ce='selective_strange_attn_ce.pt', file_name_acc='selective_strange_attn_acc.pt')
-
-
-    # additive_attn_eval(batch_size=2000, step_size=1, init_unmask_pos=None, file_name_ce='additive_attn_ce.pt', file_name_acc='additive_attn_acc.pt')
-    # additive_attn_eval(batch_size=2000, step_size=5, file_name='additive_attn_recon_errors_stepsize_5.pt')
-    # additive_plot(batch_size=10, step_size=1, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644), init_unmask_pos=190, file_name='recons_add_attn_190_stepsize_1')
 
     #
-    # additive_plot(batch_size=10, step_size=5, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
-    # random_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644), plot_every=40)
 
     #
-    # selective_direct_attn_eval(batch_size=500, step_size=1)
-    # selective_direct_attn_eval(batch_size=100, step_size=1, reverse=True)
-    # additive_plot(batch_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644), plot_every=40)
 
-    # selective_direct_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
-    # selective_iterative_attn_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
 
-    # random_direct_attn_eval(batch_size=20)
 
     # selective_direct_inverse_attn_eval(batch_size=500)
     # additive_attn_eval(batch_size=500)
