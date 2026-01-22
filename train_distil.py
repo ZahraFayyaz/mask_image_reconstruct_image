@@ -48,7 +48,7 @@ def train(epoch, loader, model, optimizer, scheduler, device, val_loader=None):
         label = label.to(device)
         
         i = i+1
-        outputs = model(inputs_embeds = input,labels =label)
+        outputs = model(inputs_embeds=input, labels=label)
         index = torch.argmax(outputs.logits, dim=2)
 
         loss, logits = outputs[:2]
@@ -282,6 +282,9 @@ if __name__ == "__main__":
     # parser.add_argument('--ckpt_distil', type=str, default="/home/abghamtm/work/masking_comparison/checkpoint/distil/80x80_100ClassImagenet_flat_144x456codebook_75mask_epoch006.pt")
     args = parser.parse_args()
 
+    val_indices = np.load('/work/reyhasjb/Imagenet/100class/latent/val_100class/flat/80x80_100ClassImagenet_flat_144x456codebook_div0001456_onlinecbupdate_10ws_128bs_indices.npy')
+    val_quantizes = np.load('/work/reyhasjb/Imagenet/100class/latent/val_100class/flat/80x80_100ClassImagenet_flat_144x456codebook_div0001456_onlinecbupdate_10ws_128bs_quantizes.npy')
+
     params = {
     "lr": args.lr,
     "bs": args.batch_size,
@@ -290,6 +293,8 @@ if __name__ == "__main__":
     run["parameters"] = params
 
     print(args)
+
+
 
     dist.launch(main, args.n_gpu, 1, 0, args.dist_url, args=(args,))
 

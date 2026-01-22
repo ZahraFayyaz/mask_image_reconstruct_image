@@ -226,7 +226,7 @@ class FlatVQVAE(nn.Module):
         quant_b, diff, _ ,diversity_penalty,codebook_usage= self.encode(input)
         dec = self.decode(quant_b)
 
-        return dec, diff,diversity_penalty,codebook_usage
+        return dec, diff, diversity_penalty, codebook_usage
 
     def encode(self, input):
         enc_b = self.enc_b(input)

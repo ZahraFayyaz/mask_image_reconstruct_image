@@ -519,6 +519,8 @@ if __name__ == "__main__":
     plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'selective_attn_recon_errors.pt'), label='iterative_selective')
     plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'random_attn_recon_errors.pt'), label='random')
 
+    a = load_data()
+
     data = torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_stepsize_5.pt').numpy()
     data_400 = np.repeat(data, 5)
     plt.plot(data_400, label='selective_strange')
