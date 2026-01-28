@@ -4,8 +4,6 @@ import torch
 from torch import nn
 import distributed as dist
 from transformers import DistilBertForMaskedLM, DistilBertConfig
-
-from mask_reconstruct_img import DATA_DIR
 from vqvae import FlatVQVAE
 import neptune
 from pathlib import Path
@@ -32,20 +30,28 @@ DATA_DIR = Path(__file__).parent / 'data'
 TMP_DIR = DATA_DIR / 'tmp'
 RUNS_DIR = DATA_DIR / 'runs'
 
+if torch.cuda.is_available():
+    DEVICE = 'cuda'
+    torch.cuda.set_device(0)
+    torch.cuda.empty_cache()
+else:
+    DEVICE = 'cpu'
+
 if HOSTNAME == 'add here':
     QUANTIZED_EPOCH_PATH = '/home/abghamtm/work/masking_comparison/checkpoint/vqvae/quantized_epoch80_flat_vqvae80x80_144x456codebook.npy'
     INDICES_PATH = '/home/abghamtm/work/masking_comparison/checkpoint/vqvae/indices_epoch80_flat_vqvae80x80_144x456codebook.npy'
     LABELS_PATH = '/home/abghamtm/work/masking_comparison/checkpoint/vqvae/labels_epoch80_flat_vqvae80x80_144x456codebook.npy'
     EIGHTY_EIGHTY_PATH = '/home/abghamtm/work/masking_comparison/checkpoint/distil/80x80_100ClassImagenet_flat_144x456codebook_75mask_epoch100.pt'
     VQVAE_PATH = '/home/abghamtm/work/masking_comparison/checkpoint/vqvae/model_epoch80_flat_vqvae80x80_144x456codebook.pth'
-    CLASSIFIER_WEIGHTS = '/home/abghamtm/work/masking_comparison/checkpoint/classifier/resnet50/weights_epoch30.pth'
 else:
+    DATA_DIR = Path(__file__).parent / 'data'
+    TMP_DIR = DATA_DIR / 'tmp'
+    RUNS_DIR = DATA_DIR / 'runs'
     QUANTIZED_EPOCH_PATH = DATA_DIR / 'vqvae' / 'quantized_epoch80_flat_vqvae80x80_144x456codebook.npy'
     INDICES_PATH = DATA_DIR / 'vqvae' / 'indices_epoch80_flat_vqvae80x80_144x456codebook.npy'
     LABELS_PATH = DATA_DIR / 'vqvae' / 'labels_epoch80_flat_vqvae80x80_144x456codebook.npy'
     EIGHTY_EIGHTY_PATH = DATA_DIR / 'vqvae' / '80x80_100ClassImagenet_flat_144x456codebook_75mask_epoch100.pt'
     VQVAE_PATH = DATA_DIR / 'vqvae' / 'model_epoch80_flat_vqvae80x80_144x456codebook.pth'
-    CLASSIFIER_WEIGHTS = DATA_DIR / 'classifier' / 'weights_epoch30.pth'
 
 
 def full_mask(q, indices):
@@ -63,17 +69,10 @@ def hide_extras(ax):
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-
 def hide_all_extras(axs):
     for row_id in range(axs.shape[0]):
         for column_id in range(axs.shape[1]):
             hide_extras(axs[row_id][column_id])
-
-
-def accuracy(logits, target):
-    pred = logits.argmax(dim=1, keepdim=True)
-    e = pred.eq(target.view_as(pred)).sum() / target.shape[0]
-    return e
 
 
 def shift_rows_and_columns(axs, rows_to_shift=(), cols_to_shift=(), vertical_shift=0.01, horizontal_shit=0.01):
@@ -105,6 +104,7 @@ def shift_rows_and_columns(axs, rows_to_shift=(), cols_to_shift=(), vertical_shi
                     cumulative_horizontal_shift += horizontal_shit
                 ax.set_position(
                     [pos.x0 + cumulative_horizontal_shift, pos.y0 - cumulative_vertical_shift, pos.width, pos.height])
+
 
 
 def conc_unique_elements(x: torch.Tensor, y: torch.Tensor, n_elements=1) -> torch.Tensor:
@@ -168,37 +168,19 @@ def vqvae_setup(args):
     return model_vqvae
 
 
-def classifier_setup():
-    weights = ResNet50_Weights.IMAGENET1K_V2
-    preprocess = weights.transforms()
-    classifier = resnet50(pretrained=False)
-    classifier.load_state_dict(torch.load(CLASSIFIER_WEIGHTS, map_location=torch.device(DEVICE)))
-    classifier.to(DEVICE)
-    classifier.eval()
-    return classifier, preprocess
-
-
-def load_data(train_data=False):
+def load_data():
     quantizes, quant_b = load_embedding_space()
     indices = load_indices()
     labels = load_labels()
-    train_indices, test_indices = train_test_split(
-        np.arange(len(labels)),
-        test_size=0.2,
-        stratify=labels,
-        random_state=42
-    )
-    set_indices = train_indices if train_data else test_indices
-    return torch.from_numpy(labels)[set_indices], torch.from_numpy(indices)[set_indices], torch.from_numpy(quantizes)[set_indices], torch.from_numpy(quant_b)[set_indices]
+    return torch.from_numpy(labels), torch.from_numpy(indices), torch.from_numpy(quantizes), torch.from_numpy(quant_b)
     # return (torch.from_numpy(labels)[:20], torch.from_numpy(indices)[:20],
     #         torch.from_numpy(quantizes)[:20], torch.from_numpy(quant_b)[:20])
 
 
-def load_models_to_device(n_token, d_embed_vec):
+def load_models_to_device(n_token=400, d_embed_vec=144):
     model_distil = transformer_setup(args, n_token, 456, d_embed_vec)
     model_vqvae = vqvae_setup(args)
     return model_distil, model_vqvae
-
 
 def batch_to_device(tensors, start_index, batch_size):
     batched_tensors = []
@@ -207,13 +189,11 @@ def batch_to_device(tensors, start_index, batch_size):
         batched_tensors.append(tensor[start_index:end_index].to(DEVICE))
     return tuple(batched_tensors)
 
-
 def get_imgs_from_ids(tensors, imgs_ids):
     batched_tensors = []
     for tensor in tensors:
         batched_tensors.append(tensor[[imgs_ids]].to(DEVICE))
     return tuple(batched_tensors)
-
 
 def denormalize(img):
     img = img * torch.tensor([0.5, 0.5, 0.5], device=img.device).view(-1, 1, 1)
@@ -221,23 +201,20 @@ def denormalize(img):
     return img
 
 
+
 @torch.no_grad()
-def additive_attn_eval(step_size=1, batch_size=2000, file_name_ce='additive_classifier_ce.pt',
-                       file_name_acc='additive_classifier_acc.pt', init_unmask_pos=None, train_data=False):
-    class_labels, index_repr, q, q_2d = load_data(train_data)
+def additive_attn_eval(step_size=1, batch_size=2000, file_name='additive_attn_recon_errors.pt', init_unmask_pos=None, eval_classifier=False):
+    class_labels, index_repr, q, q_2d = load_data()
     n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
     model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
-    classifier, preprocess = classifier_setup()
-    ce_over_batches, acc_over_batches = [], []
-    n_inputs = 0
+    recon_errors_over_batches, ce_over_batches, acc_over_batches = [], [], []
     for start_index in range(0, n_samples, batch_size):
-        q_batch, index_repr_batch, q_2d_batch, class_labels_batch = batch_to_device((q, index_repr, q_2d, class_labels),
-                                                                                    start_index, batch_size)
+        q_batch, index_repr_batch, q_2d_batch = batch_to_device((q, index_repr, q_2d), start_index, batch_size)
         q_masked, _, _ = full_mask(q_batch, index_repr_batch)
+        vqvae_out = model_vqvae.decode(q_2d_batch)
         pos_to_unmask = torch.empty((q_batch.shape[0], 0), dtype=torch.int64).to(DEVICE)
-        ce_over_tokens, acc_over_tokens = [], []
+        recon_errors_over_tokens = []
         rows = torch.arange(q_batch.size(0)).unsqueeze(1)
-        n_inputs += q_batch.shape[0]
         for i in range(0, q_batch.shape[1], step_size):
             q_masked[rows, pos_to_unmask] = q_batch[rows, pos_to_unmask]
             logits = model_distil(inputs_embeds=q_masked, output_hidden_states=True).logits
@@ -246,42 +223,31 @@ def additive_attn_eval(step_size=1, batch_size=2000, file_name_ce='additive_clas
             recons_from_max_indices = model_vqvae.decode_code(max_index_per_pos.reshape(-1, length, length).to(DEVICE))
             sorted_max_conf_per_pos = torch.argsort(max_conf_per_pos, dim=1)
             if i == 0 and init_unmask_pos is not None:
-                pos_to_unmask = torch.full(size=(batch_size, 1), fill_value=init_unmask_pos).to(DEVICE)
+                pos_to_unmask = torch.full(size=(batch_size, 1), fill_value=init_unmask_pos).to(DEVICE) # TODO this seems wrong
             else:
                 pos_to_unmask = conc_unique_elements(pos_to_unmask, sorted_max_conf_per_pos, n_elements=step_size)
-            preprocessed_image = preprocess(recons_from_max_indices)
-            logits = classifier(preprocessed_image)
-            ce_over_tokens.append(F.cross_entropy(input=logits, target=class_labels_batch).item())
-            acc_over_tokens.append(accuracy(logits=logits, target=class_labels_batch).item())
-
-            # recon_loss = F.mse_loss(recons_from_max_indices, vqvae_out, reduction='none')
-            # recon_errors_over_tokens.insert(0, torch.mean(recon_loss, dim=(1, 2, 3)).tolist())
-        ce_over_batches.append((torch.tensor(ce_over_tokens) * q_batch.shape[0]).tolist())
-        acc_over_batches.append((torch.tensor(acc_over_tokens) * q_batch.shape[0]).tolist())
-    ces = torch.sum(torch.tensor(ce_over_batches), dim=0) / n_inputs
-    accs = torch.sum(torch.tensor(acc_over_batches), dim=0) / n_inputs
-    torch.save(accs, DATA_DIR / 'class_errors' / file_name_acc)
-    torch.save(ces, DATA_DIR / 'class_errors' / file_name_ce)
+            recon_loss = F.mse_loss(recons_from_max_indices, vqvae_out, reduction='none')
+            recon_errors_over_tokens.insert(0, torch.mean(recon_loss, dim=(1, 2, 3)).tolist())
+        recon_errors_over_batches.append(recon_errors_over_tokens)
+    recon_errors = torch.tensor(recon_errors_over_batches).permute(1, 0, 2).flatten(1)
+    mean_recon_errors = torch.mean(recon_errors, dim=1)
+    torch.save(mean_recon_errors, DATA_DIR / 'recon_errors' / file_name)
 
 
 @torch.no_grad()
-def random_attn_eval(tokens_to_add=1, batch_size=2000, file_name_ce='random_classifier_ce.pt',
-                     file_name_acc='random_classifier_acc.pt', train_data=False):
-    class_labels, index_repr, q, q_2d = load_data(train_data)
+def random_attn_eval(tokens_to_add=1, batch_size=2000, file_name='random_attn_recon_errors.pt'):
+    class_labels, index_repr, q, q_2d = load_data()
     n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
     model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
-    classifier, preprocess = classifier_setup()
-    ce_over_batches, acc_over_batches = [], []
-    n_inputs = 0
+    recon_errors_over_batches = []
     for start_index in range(0, n_samples, batch_size):
-        q_batch, index_repr_batch, q_2d_batch, class_labels_batch = batch_to_device((q, index_repr, q_2d, class_labels),
-                                                                                    start_index, batch_size)
+        q_batch, index_repr_batch, q_2d_batch = batch_to_device((q, index_repr, q_2d), start_index, batch_size)
         q_masked = q_batch.clone()
         index_masked = index_repr_batch.clone()
+        vqvae_out = model_vqvae.decode(q_2d_batch)
         rnd_mask = torch.stack([torch.randperm(q_batch.shape[1]) for _ in range(q_batch.shape[0])]).to(DEVICE)
-        ce_over_tokens, acc_over_tokens = [], []
+        recon_errors_over_tokens = []
         rows = torch.arange(q_batch.size(0)).unsqueeze(1)
-        n_inputs += q_batch.shape[0]
         for i in range(0, q.shape[1] // tokens_to_add + 1):
             pos_to_mask = rnd_mask[:, :i]
             q_masked[rows, pos_to_mask, :] = 0
@@ -289,100 +255,12 @@ def random_attn_eval(tokens_to_add=1, batch_size=2000, file_name_ce='random_clas
             max_conf_per_pos, max_index_per_pos = torch.max(logits, dim=2)
             index_masked[rows, pos_to_mask] = max_index_per_pos[rows, pos_to_mask]
             recons_from_max_indices = model_vqvae.decode_code(index_masked.reshape(-1, length, length).to(DEVICE))
-            preprocessed_image = preprocess(recons_from_max_indices)
-            logits = classifier(preprocessed_image)
-            ce_over_tokens.append(F.cross_entropy(input=logits, target=class_labels_batch).item())
-            acc_over_tokens.append(accuracy(logits=logits, target=class_labels_batch).item())
-        ce_over_batches.append((torch.tensor(ce_over_tokens) * q_batch.shape[0]).tolist())
-        acc_over_batches.append((torch.tensor(acc_over_tokens) * q_batch.shape[0]).tolist())
-    ces = torch.sum(torch.tensor(ce_over_batches), dim=0) / n_inputs
-    accs = torch.sum(torch.tensor(acc_over_batches), dim=0) / n_inputs
-    torch.save(accs, DATA_DIR / 'class_errors' / file_name_acc)
-    torch.save(ces, DATA_DIR / 'class_errors' / file_name_ce)
-
-
-@torch.no_grad()
-def selective_iterative_attn_eval(step_size=1, batch_size=2000, file_name_ce='selective_iterative_classifier_ce.pt',
-                                  file_name_acc='selective_iterative_classifier_acc.pt', train_data=False):
-    class_labels, index_repr, q, q_2d = load_data(train_data)
-    n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
-    model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
-    classifier, preprocess = classifier_setup()
-    ce_over_batches, acc_over_batches = [], []
-    n_inputs = 0
-    for start_index in range(0, n_samples, batch_size):
-        q_b, index_b, q_2d_b, class_labels_batch = batch_to_device((q, index_repr, q_2d, class_labels), start_index,
-                                                                   batch_size)
-        masked_pos = torch.empty((q_b.shape[0], 0), dtype=torch.int64).to(DEVICE)
-        ce_over_tokens, acc_over_tokens = [], []
-        rows = torch.arange(index_b.size(0)).unsqueeze(1)
-        n_inputs += q_b.shape[0]
-
-        for i in range(0, q_b.shape[1] + 1, step_size):
-            # mask q at most confident positions
-            q_b[rows, masked_pos] = 0
-            # get most likely indices for masked positions
-            logits = model_distil(inputs_embeds=q_b, output_hidden_states=True).logits
-            max_conf_per_pos, max_index_per_pos = torch.max(logits, dim=2)
-            # replace indices at masked positions with most likely indices
-            index_b[rows, masked_pos] = max_index_per_pos[rows, masked_pos]
-            # compute mse
-            recons_from_max_indices = model_vqvae.decode_code(
-                index_b.reshape(-1, length, length).to(DEVICE))  # bx20x20 -> bx3x80x80
-            preprocessed_image = preprocess(recons_from_max_indices)
-            logits = classifier(preprocessed_image)
-            ce_over_tokens.append(F.cross_entropy(input=logits, target=class_labels_batch).item())
-            acc_over_tokens.append(accuracy(logits=logits, target=class_labels_batch).item())
-            # Get new mask with the new pos the model is most confident about
-            sorted_max_conf_per_pos = torch.argsort(max_conf_per_pos, dim=1, descending=True)
-            masked_pos = conc_unique_elements(masked_pos, sorted_max_conf_per_pos, n_elements=step_size)
-        ce_over_batches.append((torch.tensor(ce_over_tokens) * q_b.shape[0]).tolist())
-        acc_over_batches.append((torch.tensor(acc_over_tokens) * q_b.shape[0]).tolist())
-    ces = torch.sum(torch.tensor(ce_over_batches), dim=0) / n_inputs
-    accs = torch.sum(torch.tensor(acc_over_batches), dim=0) / n_inputs
-    torch.save(accs, DATA_DIR / 'class_errors' / file_name_acc)
-    torch.save(ces, DATA_DIR / 'class_errors' / file_name_ce)
-
-
-@torch.no_grad()
-def selective_direct_attn_eval(batch_size=2000, file_name_ce='selective_direct_classifier_ce.pt',
-                               file_name_acc='selective_direct_classifier_acc.pt', step_size=1, reverse=False, train_data=False):
-    class_labels, index_repr, q, q_2d = load_data(train_data)
-    n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
-    model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
-    classifier, preprocess = classifier_setup()
-    ce_over_batches, acc_over_batches = [], []
-    n_inputs = 0
-    for start_index in range(0, n_samples, batch_size):
-        q_b, index_b, q_2d_b, class_labels_batch = batch_to_device((q, index_repr, q_2d, class_labels), start_index,
-                                                                   batch_size)
-        logits_from_unmasked_img = model_distil(inputs_embeds=q_b, output_hidden_states=True).logits
-        max_conf_unmasked_img, max_index_unmasked_img = torch.max(logits_from_unmasked_img, dim=2)
-
-        arg_sort_max_conf_unmasked_img = torch.argsort(max_conf_unmasked_img, dim=1, descending=not reverse)
-        rows = torch.arange(index_b.size(0)).unsqueeze(1)
-        n_inputs += q_b.shape[0]
-        ce_over_tokens, acc_over_tokens = [], []
-        for i in range(0, q_b.shape[1] + 1, step_size):
-            masked_pos = arg_sort_max_conf_unmasked_img[:, :i]
-            q_b[rows, masked_pos] = 0
-            logits_from_masked_img = model_distil(inputs_embeds=q_b, output_hidden_states=True).logits
-            max_conf_masked_img, max_index_masked_img = torch.max(logits_from_masked_img, dim=2)
-            index_b[rows, masked_pos] = max_index_masked_img[rows, masked_pos]
-            recons_from_max_indices = model_vqvae.decode_code(
-                index_b.reshape(-1, length, length).to(DEVICE))  # bx20x20 -> bx3x80x80
-            # replace indices at masked positions with most likely indices
-            preprocessed_image = preprocess(recons_from_max_indices)
-            logits = classifier(preprocessed_image)
-            ce_over_tokens.append(F.cross_entropy(input=logits, target=class_labels_batch).item())
-            acc_over_tokens.append(accuracy(logits=logits, target=class_labels_batch).item())
-
-        ce_over_batches.append((torch.tensor(ce_over_tokens) * q_b.shape[0]).tolist())
-        acc_over_batches.append((torch.tensor(acc_over_tokens) * q_b.shape[0]).tolist())
-    ces = torch.sum(torch.tensor(ce_over_batches), dim=0) / n_inputs
-    accs = torch.sum(torch.tensor(acc_over_batches), dim=0) / n_inputs
-    torch.save(accs, DATA_DIR / 'class_errors' / file_name_acc)
-    torch.save(ces, DATA_DIR / 'class_errors' / file_name_ce)
+            recon_loss = F.mse_loss(recons_from_max_indices, vqvae_out, reduction='none')
+            recon_errors_over_tokens.append(torch.mean(recon_loss, dim=(1, 2, 3)).tolist())
+        recon_errors_over_batches.append(recon_errors_over_tokens)
+    recon_errors = torch.tensor(recon_errors_over_batches).permute(1, 0, 2).flatten(1)
+    mean_recon_errors = torch.mean(recon_errors, dim=1)
+    torch.save(mean_recon_errors, DATA_DIR / 'recon_errors' / file_name)
 
 
 @torch.no_grad()
@@ -404,7 +282,7 @@ def random_plot(batch_size=2000, step_size=1, img_ids=None, file_name='recons_rn
 
     for i in range(0, q_batch.shape[1] + 1, step_size):
         pos_to_mask = rnd_mask[:, :i]
-        q_masked[rows, pos_to_mask] = 0
+        q_masked[rows, pos_to_mask]  = 0
         logits = model_distil(inputs_embeds=q_masked, output_hidden_states=True).logits
         max_conf_per_pos, max_index_per_pos = torch.max(logits, dim=2)
 
@@ -413,15 +291,47 @@ def random_plot(batch_size=2000, step_size=1, img_ids=None, file_name='recons_rn
         if i % plot_every == 0:
             recons.append(model_vqvae.decode_code(index_masked.reshape(-1, length, length)))
             masks.append(mask.clone())
-            perc.append(i / 400)
+            perc.append( i / 400)
             confidences.append(max_conf_per_pos)
             normed_confidences.append(torch.max(torch.softmax(logits, dim=2), dim=2)[0])
 
     plot_recons(recons, masks, perc, confidences, normed_confidences, file_name)
 
+@torch.no_grad()
+def selective_iterative_attn_eval(step_size=1, batch_size=2000, file_name='selective_attn_recon_errors.pt'):
+    class_labels, index_repr, q, q_2d = load_data()
+    n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
+    model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
+    recon_errors_over_batches = []
+    for start_index in range(0, n_samples, batch_size):
+        q_b, index_b, q_2d_b = batch_to_device((q, index_repr, q_2d), start_index, batch_size)
+        vqvae_out = model_vqvae.decode(q_2d_b)
+        masked_pos = torch.empty((q_b.shape[0], 0), dtype=torch.int64).to(DEVICE)
+        recon_errors_over_tokens = []
+        rows = torch.arange(index_b.size(0)).unsqueeze(1)
+
+        for i in range(0, q_b.shape[1] + 1, step_size):
+            # mask q at most confident positions
+            q_b[rows, masked_pos] = 0
+            # get most likely indices for masked positions
+            logits = model_distil(inputs_embeds=q_b, output_hidden_states=True).logits
+            max_conf_per_pos, max_index_per_pos = torch.max(logits, dim=2)
+            # replace indices at masked positions with most likely indices
+            index_b[rows, masked_pos] = max_index_per_pos[rows, masked_pos]
+            # compute mse
+            recons_from_max_indices = model_vqvae.decode_code(index_b.reshape(-1, length, length).to(DEVICE))  # bx20x20 -> bx3x80x80
+            recon_loss = F.mse_loss(recons_from_max_indices, vqvae_out, reduction='none')
+            recon_errors_over_tokens.append(torch.mean(recon_loss, dim=(1, 2, 3)).tolist())
+            # Get new mask with the new pos the model is most confident about
+            sorted_max_conf_per_pos = torch.argsort(max_conf_per_pos, dim=1, descending=True)
+            masked_pos = conc_unique_elements(masked_pos, sorted_max_conf_per_pos, n_elements=step_size)
+        recon_errors_over_batches.append(recon_errors_over_tokens)
+    recon_errors = torch.tensor(recon_errors_over_batches).permute(1, 0, 2).flatten(1)
+    mean_recon_errors = torch.mean(recon_errors, dim=1)
+    torch.save(mean_recon_errors, DATA_DIR / 'recon_errors' / file_name)
 
 @torch.no_grad()
-def selective_iterative_attn_plot(step_size=1, batch_size=2000, file_name='recons_sel_iter_attn', img_ids=None):
+def selective_iterative_attn_plot(step_size=1, batch_size=2000,  file_name='recons_sel_iter_attn', img_ids=None):
     class_labels, index_repr, q, q_2d = load_data()
     n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
     model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
@@ -447,8 +357,7 @@ def selective_iterative_attn_plot(step_size=1, batch_size=2000, file_name='recon
         # replace indices at masked positions with most likely indices
         index_b[rows, masked_pos] = max_index_per_pos[rows, masked_pos]
 
-        recons_from_max_indices = model_vqvae.decode_code(
-            index_b.reshape(-1, length, length).to(DEVICE))  # bx20x20 -> bx3x80x80
+        recons_from_max_indices = model_vqvae.decode_code(index_b.reshape(-1, length, length).to(DEVICE))  # bx20x20 -> bx3x80x80
         masks.append(mask.clone())
         recons.append(recons_from_max_indices)
         confidences.append(max_conf_per_pos)
@@ -458,6 +367,47 @@ def selective_iterative_attn_plot(step_size=1, batch_size=2000, file_name='recon
         sorted_max_conf_per_pos = torch.argsort(max_conf_per_pos, dim=1, descending=True)
         masked_pos = conc_unique_elements(masked_pos, sorted_max_conf_per_pos, n_elements=step_size)
     plot_recons(recons, masks, perc, confidences, normed_confidences, file_name)
+
+
+
+@torch.no_grad()
+def selective_direct_attn_eval(batch_size=2000, file_name='selective_attn_direct_recon_errors.pt', step_size=1, reverse=False):
+    class_labels, index_repr, q, q_2d = load_data()
+    n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
+    model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
+    recon_errors_over_batches = []
+    for start_index in range(0, n_samples, batch_size):
+        q_b, index_b, q_2d_b = batch_to_device((q, index_repr, q_2d), start_index, batch_size)
+        vqvae_out = model_vqvae.decode(q_2d_b)
+        logits_from_unmasked_img = model_distil(inputs_embeds=q_b, output_hidden_states=True).logits
+        max_conf_unmasked_img, max_index_unmasked_img = torch.max(logits_from_unmasked_img, dim=2)
+
+        arg_sort_max_conf_unmasked_img = torch.argsort(max_conf_unmasked_img, dim=1, descending=not reverse)
+        recon_errors_over_tokens = []
+        rows = torch.arange(index_b.size(0)).unsqueeze(1)
+
+        for i in range(0, q_b.shape[1] + 1, step_size):
+            masked_pos = arg_sort_max_conf_unmasked_img[:, :i]
+            q_b[rows, masked_pos] = 0
+            logits_from_masked_img = model_distil(inputs_embeds=q_b, output_hidden_states=True).logits
+            max_conf_masked_img, max_index_masked_img = torch.max(logits_from_masked_img, dim=2)
+            index_b[rows, masked_pos] = max_index_masked_img[rows, masked_pos]
+            recons_from_max_indices = model_vqvae.decode_code(
+                index_b.reshape(-1, length, length).to(DEVICE))  # bx20x20 -> bx3x80x80
+            # replace indices at masked positions with most likely indices
+            recon_loss = F.mse_loss(recons_from_max_indices, vqvae_out, reduction='none')
+            recon_errors_over_tokens.append(torch.mean(recon_loss, dim=(1, 2, 3)).tolist())
+            # get most likely indices for masked positions
+            # replace indices at masked positions with most likely indices
+            # Get new mask with the new pos the model is most confident about
+            # sorted_max_conf_per_pos = torch.argsort(max_conf_per_pos, dim=1, descending=True)
+        recon_errors_over_batches.append(recon_errors_over_tokens)
+    recon_errors = torch.tensor(recon_errors_over_batches).permute(1, 0, 2).flatten(1)
+    mean_recon_errors = torch.mean(recon_errors, dim=1)
+    if reverse:
+        torch.save(mean_recon_errors, DATA_DIR / 'recon_errors' / file_name)
+    else:
+        torch.save(mean_recon_errors, DATA_DIR / 'recon_errors' / 'selective_attn_direct_inverse_recon_errors.pt')
 
 
 @torch.no_grad()
@@ -486,21 +436,19 @@ def selective_direct_plot(batch_size=10, step_size=1, file_name='recons_sel_dir_
         logits_from_masked_img = model_distil(inputs_embeds=q_b, output_hidden_states=True).logits
         max_conf_masked_img, max_index_masked_img = torch.max(logits_from_masked_img, dim=2)
         index_b[rows, masked_pos] = max_index_masked_img[rows, masked_pos]
-        recons_from_max_indices = model_vqvae.decode_code(
-            index_b.reshape(-1, length, length).to(DEVICE))  # bx20x20 -> bx3x80x80
+        recons_from_max_indices = model_vqvae.decode_code(index_b.reshape(-1, length, length).to(DEVICE))  # bx20x20 -> bx3x80x80
 
         masks.append(mask.clone())
         recons.append(recons_from_max_indices)
         confidences.append(max_conf_masked_img)
         normed_confidences.append(torch.max(torch.softmax(logits_from_masked_img, dim=2), dim=2)[0])
-        perc.append(i / 400)
+        perc.append(i/400)
 
     plot_recons(recons, masks, perc, confidences, normed_confidences, file_name)
 
 
 @torch.no_grad()
-def additive_plot(batch_size=10, file_name='recons_add_attn', step_size=1, img_ids=None, init_unmask_pos=None,
-                  plot_every=40):
+def additive_plot(batch_size=10, file_name='recons_add_attn', step_size=1, img_ids=None, init_unmask_pos=None, plot_every=40):
     class_labels, index_repr, q, q_2d = load_data()
     n_samples, n_token, d_embed_vec, length = q.shape[0], index_repr.shape[1], q.shape[-1], q_2d.shape[-1]
     model_distil, model_vqvae = load_models_to_device(n_token=n_token, d_embed_vec=d_embed_vec)
@@ -536,6 +484,8 @@ def additive_plot(batch_size=10, file_name='recons_add_attn', step_size=1, img_i
     plot_recons(recons, masks, mask_perc, confidences, normed_confidences, file_name)
 
 
+
+
 def plot_recons(recons, masks, perc, confidences, normed_confidences, file_name):
     n_rows, n_cols = len(masks) + 1, recons[0].shape[0] * 4
     fig, axs = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(3 * n_cols, 3 * n_rows))
@@ -552,6 +502,9 @@ def plot_recons(recons, masks, perc, confidences, normed_confidences, file_name)
     fig.savefig(DATA_DIR / 'plots' / (file_name + '.pdf'), format='pdf')
 
 
+
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_gpu", type=int, default=1)
@@ -559,98 +512,54 @@ if __name__ == "__main__":
     parser.add_argument("--dist_url", default=f"tcp://127.0.0.1:{port}")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument('--ckpt_vqvae', type=str, default=VQVAE_PATH)
-    parser.add_argument('--cuda', '-c', type=int, default=0)
-
     parser.add_argument('--ckpt_distil_combined', type=str, default=EIGHTY_EIGHTY_PATH)
+
+    # plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'selective_attn_direct_inverse_recon_errors.pt'), label='direct_inv_selective')
+    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors.pt'), label='additive')
+    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'selective_attn_direct_recon_errors.pt'), label='direct_selective')
+    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'selective_attn_recon_errors.pt'), label='iterative_selective')
+    plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'random_attn_recon_errors.pt'), label='random')
+
+    # a = load_data()
+
+    # data = torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_stepsize_5.pt').numpy()
+    # data_400 = np.repeat(data, 5)
+    # plt.plot(data_400, label='selective_strange')
+
+    # plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_init_200.pt'), label='additive_200')
+    # plt.plot(torch.load(DATA_DIR / 'recon_errors' / 'additive_attn_recon_errors_init_190.pt'), label='additive_190')
+
+
+    plt.legend()
+    plt.show()
+    # #
+    #
     args = parser.parse_args()
-
-    if torch.cuda.is_available():
-        DEVICE = 'cuda'
-        torch.cuda.set_device(args.cuda)
-        torch.cuda.empty_cache()
-    else:
-        DEVICE = 'cpu'
+    # g = load_models_to_device()
     pass
-
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_acc.pt'), label='additive_attn')
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_acc.pt').flip(0),
-    #          label='selective_direct')
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_acc.pt').flip(0),
-    #          label='selective_iterative')
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_acc.pt').flip(0), label='random_attn')
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_acc.pt').numpy().repeat(5), label='selective_strange')
-    #
-    #
-    # plt.ylim(0, 1)
-    # plt.legend()
-    # plt.show()
-    # #
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_ce.pt'), label='additive_attn')
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_ce.pt').flip(0),
-    #          label='selective_direct')
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_ce.pt').flip(0),
-    #          label='selective_iterative')
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_ce.pt').flip(0), label='random_attn')
-    # plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_ce.pt').numpy().repeat(5), label='selective_strange')
-    #
-    # plt.ylim(0, None)
-    # plt.legend()
-    # plt.show()
-
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_acc_train.pt'), label='additive_attn')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_acc_train.pt').flip(0),
-             label='selective_direct')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_acc_train.pt').flip(0),
-             label='selective_iterative')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_acc_train.pt').flip(0), label='random_attn')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_acc_train.pt').numpy().repeat(5), label='selective_strange')
-
-
-    plt.ylim(0, 1)
-    plt.legend()
-    plt.show()
-    # #
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'additive_attn_ce_train.pt'), label='additive_attn')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_direct_classifier_ce_train.pt').flip(0),
-             label='selective_direct')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_iterative_classifier_ce_train.pt').flip(0),
-             label='selective_iterative')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'random_classifier_ce_train.pt').flip(0), label='random_attn')
-    plt.plot(torch.load(DATA_DIR / 'class_errors' / 'selective_strange_attn_ce_train.pt').numpy().repeat(5), label='selective_strange')
-    #
-    plt.ylim(0, None)
-    plt.legend()
-    plt.show()
-
-
-    # random_attn_eval(batch_size=2000, tokens_to_add=1, file_name_ce='random_classifier_ce_train.pt', file_name_acc='random_classifier_acc_train.pt', train_data=True)
-    # selective_direct_attn_eval(batch_size=2000, step_size=1, file_name_ce='selective_direct_classifier_ce_train.pt', file_name_acc='selective_direct_classifier_acc_train.pt', train_data=True)
-    # selective_iterative_attn_eval(batch_size=2000, step_size=1, file_name_ce='selective_iterative_classifier_ce_train.pt', file_name_acc='selective_iterative_classifier_acc_train.pt', train_data=True)
-    # additive_attn_eval(batch_size=2000, step_size=5, init_unmask_pos=200, file_name_ce='selective_strange_attn_ce_train.pt', file_name_acc='selective_strange_attn_acc_train.pt', train_data=True)
-    # additive_attn_eval(batch_size=2000, step_size=1, init_unmask_pos=None, file_name_ce='additive_attn_ce_train.pt', file_name_acc='additive_attn_acc_train.pt', train_data=True)
-    #
-    # random_attn_eval(batch_size=2000, tokens_to_add=1, file_name_ce='random_classifier_ce.pt',
-    #                  file_name_acc='random_classifier_acc.pt')
-    # selective_direct_attn_eval(batch_size=2000, step_size=1, file_name_ce='selective_direct_classifier_ce.pt',
-    #                            file_name_acc='selective_direct_classifier_acc.pt')
-    # selective_iterative_attn_eval(batch_size=2000, step_size=1,
-    #                               file_name_ce='selective_iterative_classifier_ce.pt',
-    #                               file_name_acc='selective_iterative_classifier_acc.pt')
-    # additive_attn_eval(batch_size=2000, step_size=5, init_unmask_pos=200,
-    #                    file_name_ce='selective_strange_attn_ce.pt',
-    #                    file_name_acc='selective_strange_attn_acc.pt')
-    # additive_attn_eval(batch_size=2000, step_size=1, init_unmask_pos=None, file_name_ce='additive_attn_ce.pt',
-    #                    file_name_acc='additive_attn_acc.pt')
-
+    # additive_attn_eval(batch_size=500, step_size=1, init_unmask_pos=200, file_name='additive_attn_recon_errors_init_200.pt')
+    # additive_attn_eval(batch_size=500, step_size=1, init_unmask_pos=190, file_name='additive_attn_recon_errors_init_190.pt')
+    # additive_attn_eval(batch_size=500, step_size=5, file_name='additive_attn_recon_errors_stepsize_5.pt')
+    # additive_plot(batch_size=10, step_size=1, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644), init_unmask_pos=190, file_name='recons_add_attn_190_stepsize_1')
 
 
     #
+    # additive_plot(batch_size=10, step_size=5, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
+    random_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644), plot_every=40)
 
     #
+    # selective_direct_attn_eval(batch_size=500, step_size=1)
+    # selective_direct_attn_eval(batch_size=100, step_size=1, reverse=True)
+    # additive_plot(batch_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644), plot_every=40)
 
 
+    # selective_direct_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
+    # selective_iterative_attn_plot(batch_size=10, step_size=10, img_ids=(462, 1671,  1836, 4970, 5852, 7777, 8513, 8685, 9469, 9644))
+
+    # random_direct_attn_eval(batch_size=20)
 
     # selective_direct_inverse_attn_eval(batch_size=500)
+    # random_attn_eval()
     # additive_attn_eval(batch_size=500)
     # selective_iterative_attn_eval(batch_size=500)
     # za
