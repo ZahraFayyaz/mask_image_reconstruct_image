@@ -1,10 +1,10 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from transformers.utils import add_code_sample_docstrings
 
 import distributed as dist_fn
 import numpy as np
-
 
 # Copyright 2018 The Sonnet Authors. All Rights Reserved.
 #
@@ -26,7 +26,6 @@ import numpy as np
 # Pytorch implementation borrowed from https://github.com/rosinality/vq-vae-2-pytorch and modified 
 
 
-
 class Quantize(nn.Module):
     def __init__(self, dim, n_embed, decay=0.99, eps=1e-5):
         super().__init__()
@@ -40,7 +39,7 @@ class Quantize(nn.Module):
         self.register_buffer("embed", embed)
         self.register_buffer("cluster_size", torch.zeros(n_embed))
         self.register_buffer("embed_avg", embed.clone())
-        #First initialization of codebooks, currently set to intialize with some input, for test you need to set this to False
+        # First initialization of codebooks, currently set to intialize with some input, for test you need to set this to False
         self.initialized = True
         # Initialize tracking for unused codebooks
         window_size = 1
@@ -57,9 +56,9 @@ class Quantize(nn.Module):
 
         flatten = input.reshape(-1, self.dim)
         dist = (
-            flatten.pow(2).sum(1, keepdim=True)
-            - 2 * flatten @ self.embed
-            + self.embed.pow(2).sum(0, keepdim=True)
+                flatten.pow(2).sum(1, keepdim=True)
+                - 2 * flatten @ self.embed
+                + self.embed.pow(2).sum(0, keepdim=True)
         )
         _, embed_ind = (-dist).max(1)
         embed_onehot = F.one_hot(embed_ind, self.n_embed).type(flatten.dtype)
@@ -84,13 +83,13 @@ class Quantize(nn.Module):
 
             n = self.cluster_size.sum()
             cluster_size = (
-                (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
+                    (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
             )
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
             self.embed.data.copy_(embed_normalized)
 
             # Track codebook usage
-            unique_indices= torch.unique(torch.flatten(embed_ind, start_dim=1), return_counts=False)
+            unique_indices = torch.unique(torch.flatten(embed_ind, start_dim=1), return_counts=False)
             num_used_codebooks = unique_indices.shape[0]
             self.usage_history.append(num_used_codebooks)
             if len(self.usage_history) > self.usage_threshold:
@@ -106,7 +105,6 @@ class Quantize(nn.Module):
                         avg_current_batch = torch.mean(flatten, dim=0)
                         self.embed.data[:, unused_codebook_indices] = avg_current_batch.unsqueeze(1)
 
-
         diff = (quantize.detach() - input).pow(2).mean()
         quantize = input + (quantize - input).detach()
 
@@ -114,7 +112,7 @@ class Quantize(nn.Module):
 
     def embed_code(self, embed_id):
         return F.embedding(embed_id, self.embed.transpose(0, 1))
-    
+
     def initialize_codebook(self, input):
         flatten = input.reshape(-1, self.dim)
         self.embed.data.copy_(flatten[:self.n_embed].t())
@@ -166,7 +164,7 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(
-        self, in_channel, out_channel, channel, n_res_block, n_res_channel, stride
+            self, in_channel, out_channel, channel, n_res_block, n_res_channel, stride
     ):
         super().__init__()
 
@@ -187,7 +185,6 @@ class Decoder(nn.Module):
                     ),
                 ]
             )
-        
 
         self.blocks = nn.Sequential(*blocks)
 
@@ -197,14 +194,14 @@ class Decoder(nn.Module):
 
 class FlatVQVAE(nn.Module):
     def __init__(
-        self,
-        in_channel=3,
-        channel=144,
-        n_res_block=2,
-        n_res_channel=72,
-        embed_dim=144,
-        n_embed=456,
-        decay=0.99,
+            self,
+            in_channel=3,
+            channel=144,
+            n_res_block=2,
+            n_res_channel=72,
+            embed_dim=144,
+            n_embed=456,
+            decay=0.99,
     ):
         super().__init__()
 
@@ -220,10 +217,10 @@ class FlatVQVAE(nn.Module):
         )
         self.vocab_size = n_embed
 
-        self.diversity_threshold=int(n_embed)
+        self.diversity_threshold = int(n_embed)
 
     def forward(self, input):
-        quant_b, diff, _ ,diversity_penalty,codebook_usage= self.encode(input)
+        quant_b, diff, _, diversity_penalty, codebook_usage = self.encode(input)
         dec = self.decode(quant_b)
 
         return dec, diff, diversity_penalty, codebook_usage
@@ -246,5 +243,3 @@ class FlatVQVAE(nn.Module):
         quant_b = quant_b.permute(0, 3, 1, 2)
         dec = self.decode(quant_b)
         return dec
-
-    

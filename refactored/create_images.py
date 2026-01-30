@@ -114,17 +114,32 @@ def additive_plot(img, labels, vqvae, transformer, classifier, step_size=1, img_
 
 
 if __name__ == '__main__':
-    util.set_seed(0)
+    import pickle as pkl
+    import matplotlib.pyplot as plt
+    util.set_seed(1)
 
-    dataloader = util.load_val_data(256)
+    img_ids = [1008, 1006, 1002, 1001, 997, 987, 979, 961, 957, 956,  953, 951, 944, 936, 912, 879, 864, 832, 814,
+    794, 785, 781, 779, 756, 755, 753, 746, 743, 728, 723, 715, 708, 697, 694, 686, 681, 678, 644, 653,
+    649, 626, 186, 185, 172, 163, 161, 149, 124, 114, 89, 66, 36, 26, 8, 202, 207, 234, 271, 303, 322,
+    335, 365, 582, 558, 529, 481, 474, 438, 419]
+
+    dataloader = util.load_val_data(1024)
     img, labels = next(iter(dataloader))
-    vqvae, transformer, classifier = util.model_setup(util.TRANSFORMER_RND_M_WEIGHTS)
-    preprocess = ResNet50_Weights.IMAGENET1K_V2.transforms()
-    # #
+    img, labels = img[img_ids], labels[img_ids]
+    # img = util.denormalize(img[img_ids])
+    # # kek = util.denormalize(load_pkl(file_name='rnd_rnd_m')[0][0])
+    # for i in range(len(img)):
+    #     plt.imshow(img[i].permute(1, 2, 0))
+    #     plt.title(str(i))
+    #     plt.show()
+
+    init_trans = 'VQVAET-511'
+    vqvae, transformer, classifier = util.model_setup(init_from=init_trans)
+#     # #
     random_plot(img=img, labels=labels, vqvae=vqvae, transformer=transformer, classifier=classifier, step_size=40,
-                file_name='rnd_rnd_m')  # transfomer - masking technique
+                file_name=f'{init_trans}_rnd')  # transfomer - masking technique
     selective_direct_plot(img=img, labels=labels, vqvae=vqvae, transformer=transformer, classifier=classifier, step_size=40,
-                          file_name='rnd_sel_m')
+                          file_name=f'{init_trans}_sel')
     additive_plot(img=img, labels=labels, vqvae=vqvae, transformer=transformer, classifier=classifier, step_size=1,
-                  file_name='rnd_add_m')
-#
+                  file_name=f'{init_trans}_add')
+# #

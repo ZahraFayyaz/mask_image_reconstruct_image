@@ -67,7 +67,7 @@ def eval_random(model_distil, model_vqvae, classifier, quant_b, id_b, label, sum
 
 
 @torch.no_grad()
-def eval_model(model_distil, model_vqvae, dataloader, classifier, masking_ratio=0.5, run=None):
+def eval_model(model_distil, model_vqvae, dataloader, classifier, masking_strategy, masking_ratio=0.5, run=None):
     # ce[0], acc[1], ce_m[2], acc_m[3], class_ce[4], class_acc_5
     sum_sel = torch.zeros(6).to(DEVICE)
     sum_sel_desc = torch.zeros(6).to(DEVICE)
@@ -108,8 +108,10 @@ def eval_model(model_distil, model_vqvae, dataloader, classifier, masking_ratio=
         run["val/selective_desc_acc_masked_only"].append(sum_sel_desc[3])
         run["val/selective_desc_class_ce"].append(sum_sel_desc[4])
         run["val/selective_desc_class_acc"].append(sum_sel_desc[5])
-
-    return sum_rnd[2]
+    if masking_strategy == 'selective':
+        return sum_sel_desc[2]
+    else:
+        return sum_rnd[2]
 
 
 if __name__ == '__main__':
@@ -172,7 +174,7 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.AdamW(model_distil.parameters(), lr=lr)
     best_eval_loss = eval_model(model_distil=model_distil, model_vqvae=model_vqvae, dataloader=val_dataloader, run=run,
-                                masking_ratio=masking_ratio, classifier=classifier)
+                                masking_ratio=masking_ratio, classifier=classifier, masking_strategy=masking_strategy)
     for epoch in range(epochs):
         model_distil.train()
         for _, (img, _) in enumerate(train_dataloader):
@@ -191,8 +193,8 @@ if __name__ == '__main__':
             optimizer.step()
             run['train/loss'].append(loss)
         eval_loss = eval_model(model_distil=model_distil, model_vqvae=model_vqvae, dataloader=val_dataloader,
-                               run=run,
-                               masking_ratio=masking_ratio, classifier=classifier)
+                               run=run, masking_ratio=masking_ratio, classifier=classifier,
+                               masking_strategy=masking_strategy)
         if eval_loss < best_eval_loss:
             best_eval_loss = eval_loss
             torch.save(model_distil.state_dict(), f=(util.RUNS_DIR / run_id / 'model_st.pt'))

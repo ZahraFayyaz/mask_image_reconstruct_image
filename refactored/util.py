@@ -68,7 +68,7 @@ def set_border(ax, correctly_classified, no_color=False):
 if HOSTNAME == 'gpu03':
     IMG_NET_TRAIN = '/local/reyhasjb/datasets/Imagenet-100class/train'
     IMG_NET_VAL = '/local/reyhasjb/datasets/Imagenet-100class/val'
-elif HOSTNAME == 'gpu01':
+elif HOSTNAME in {'gpu01', 'gpu02', 'tesla'}:
     IMG_NET_TRAIN = '/local/rathjjgf/datasets/Imagenet-100class/train'
     IMG_NET_VAL = '/local/rathjjgf/datasets/Imagenet-100class/val'
 else:
@@ -149,9 +149,9 @@ def classifier_setup(pretrained=True):
     return classifier
 
 
-def model_setup(transformer_path):
+def model_setup(transformer_path=None, init_from=None):
     vqvae = vqvae_setup()
-    transformer = transformer_setup(transformer_path)
+    transformer = transformer_setup(transformer_path, init_from)
     classifier = classifier_setup()
     return vqvae, transformer, classifier
 
