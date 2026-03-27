@@ -71,6 +71,9 @@ if HOSTNAME == 'gpu03':
 elif HOSTNAME in {'gpu01', 'gpu02', 'tesla'}:
     IMG_NET_TRAIN = '/local/rathjjgf/datasets/Imagenet-100class/train'
     IMG_NET_VAL = '/local/rathjjgf/datasets/Imagenet-100class/val'
+elif HOSTNAME in {'fluss'}:
+    IMG_NET_TRAIN = '/scratch/rathjjgf/datasets/Imagenet-100class/train'
+    IMG_NET_VAL = '/scratch/rathjjgf/datasets/Imagenet-100class/val'
 else:
     IMG_NET_TRAIN = '/Users/rathjjgf/datasets/Imagenet-100class/val'  # for debugging only
     IMG_NET_VAL = '/Users/rathjjgf/datasets/Imagenet-100class/val'
